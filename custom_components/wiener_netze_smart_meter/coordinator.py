@@ -36,6 +36,15 @@ from .logic import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# HA 2026.11 drops has_mean in favour of mean_type. Use mean_type where the
+# enum exists, fall back to has_mean on older cores.
+try:
+    from homeassistant.components.recorder.models import StatisticMeanType
+
+    _MEAN_FIELD = {"mean_type": StatisticMeanType.NONE}
+except ImportError:  # HA without StatisticMeanType
+    _MEAN_FIELD = {"has_mean": False}
+
 
 class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: WNAPIClient) -> None:
@@ -78,7 +87,7 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
 
     def _energy_metadata(self, zaehlpunkt: str) -> StatisticMetaData:
         return StatisticMetaData(
-            has_mean=False,
+            **_MEAN_FIELD,
             has_sum=True,
             name=f"Smart meter {zaehlpunkt[-6:]} hourly energy",
             source=DOMAIN,
@@ -88,7 +97,7 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
 
     def _cost_metadata(self, zaehlpunkt: str) -> StatisticMetaData:
         return StatisticMetaData(
-            has_mean=False,
+            **_MEAN_FIELD,
             has_sum=True,
             name=f"Smart meter {zaehlpunkt[-6:]} hourly cost",
             source=DOMAIN,
