@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read manifest version
+        id: ver
+        run: |
+          version=$(jq -r .version custom_components/wiener_netze_smart_meter/manifest.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create release if the tag is new
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.ver.outputs.version }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists - nothing to do."
+          else
+            echo "Creating release $tag"
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "${{ github.sha }}" \
+              --title "$tag" \
+              --generate-notes
+          fi
