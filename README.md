@@ -9,6 +9,7 @@
 
 - [Introduction](#introduction)
 - [First Steps](#firststeps)
+- [Home Assistant Integration](#home-assistant-integration)
 - [Installation](#installation)
 - [Usage](#usage)
 - [License](#license)
@@ -18,6 +19,11 @@ This project provides a Python wrapper for the **official** Wiener Netze Smart M
 
 By following the instructions below, you can acquire the necessary API credentials (client ID, client secret, and API key) from Wiener Stadtwerke’s developer portal and start fetching your power usage data .
 
+It ships in two forms:
+
+- **Python library** (`pip install wiener-netze-smart-meter-api`) — see [Usage](#usage) below.
+- **Home Assistant integration** (installable via HACS) — see [Home Assistant Integration](#home-assistant-integration).
+
 ## First Steps
 
 1. Create an account at the [Developer Portal of the Wiener Stadtwerke](https://api-portal.wienerstadtwerke.at/)
@@ -26,6 +32,37 @@ By following the instructions below, you can acquire the necessary API credentia
 4. Write an e-mail to the [Smart Meter Portal Support](mailto:support.sm-portal@wienit.at?subject=Anfrage%20zur%20%C3%9Cberpr%C3%BCfung%20und%20Fertigstellung%20der%20Anmeldung%20zur%20Smart%20Meter-Public%20API&body=Ich%20bitte%20um%20%C3%9Cberpr%C3%BCfung%20und%20Fertigstellung%20der%20Anmeldung%20zur%20Smart%20Meter-Public%20API%0A%0AApplikationsname%20%28aus%20dem%20WSTW%20Developer-Portal%29%3A%20%5BName%20of%20application%20created%20at%20the%20Developer%20Portal%20of%20the%20Wiener%20Stadtwerke%5D%0A%0ASmart%20Meter-Portal%20E-Mail-Adresse%3A%20%5BE-mail%20address%20of%20Smart%20Meter%20Portal%20user%5D) to connect the application with the Smart Meter Portal user. It usually takes 1-2 weeks to get a response.
 5. Afterwards the **client-ID** and **client-secret** can be found in the [settings](https://smartmeter-business.wienernetze.at/einstellungen) of the Smart Meter-Businessportal. 
 
+
+## Home Assistant Integration
+
+This repository also contains a Home Assistant custom integration
+(`custom_components/wiener_netze_smart_meter`) that exposes your smart meter
+data to Home Assistant, installable through [HACS](https://hacs.xyz/).
+
+### Install via HACS
+
+1. In HACS, open the menu (⋮) → **Custom repositories**.
+2. Add `https://github.com/KrOnAsK/Wiener-Netze-Smart-Meter-API` with category **Integration**.
+3. Install **Wiener Netze Smart Meter**, then restart Home Assistant.
+4. Go to **Settings → Devices & Services → Add Integration**, search for
+   **Wiener Netze Smart Meter**, and enter your **client ID**, **client secret**,
+   and **API key** (see [First Steps](#firststeps)). Credentials are stored
+   encrypted by Home Assistant — no YAML or `.env` editing required.
+
+### What you get
+
+- A **Daily energy** sensor per meter (`zaehlpunkt`) holding the most recent
+  daily consumption value (Wh).
+- **Hourly energy long-term statistics** per meter, suitable for the
+  **Energy dashboard**. The quarter-hour API data is summed into hourly buckets
+  and imported with correct historical timestamps. On first run the last
+  `BACKFILL_DAYS` (default 30, see `const.py`) of history is backfilled.
+
+> [!NOTE]
+> The official API publishes measurements with a 1–2 day delay, so the most
+> recent values always lag by a day or two. Home Assistant long-term statistics
+> are bucketed hourly, so sub-hour (15-minute) resolution is not preserved on
+> the Energy dashboard.
 
 ## Installation
 
@@ -40,6 +77,9 @@ pip install -U wiener-netze-smart-meter-api
 ```
 
 ## Usage
+
+Using the Python library directly (not needed for the Home Assistant integration):
+
 ```console
 from wiener_netze_smart_meter_api import WNAPIClient
 from datetime import datetime
