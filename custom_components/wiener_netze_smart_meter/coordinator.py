@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from functools import partial
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
@@ -73,21 +74,45 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
                 readings[zaehlpunkt] = reading
         return readings
 
-    async def _import_hourly_statistics(self, zaehlpunkt: str) -> None:
-        statistic_id = f"{DOMAIN}:{zaehlpunkt.lower()}_hourly_energy"
+    # --- statistics metadata helpers ---
 
+    def _energy_metadata(self, zaehlpunkt: str) -> StatisticMetaData:
+        return StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"Smart meter {zaehlpunkt[-6:]} hourly energy",
+            source=DOMAIN,
+            statistic_id=f"{DOMAIN}:{zaehlpunkt.lower()}_hourly_energy",
+            unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        )
+
+    def _cost_metadata(self, zaehlpunkt: str) -> StatisticMetaData:
+        return StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"Smart meter {zaehlpunkt[-6:]} hourly cost",
+            source=DOMAIN,
+            statistic_id=f"{DOMAIN}:{zaehlpunkt.lower()}_hourly_cost",
+            unit_of_measurement=COST_CURRENCY,
+        )
+
+    async def _last_sum(self, statistic_id: str) -> tuple[float, datetime | None]:
         last = await get_instance(self.hass).async_add_executor_job(
             get_last_statistics, self.hass, 1, statistic_id, True, {"sum"}
         )
         if last.get(statistic_id):
-            total = last[statistic_id][0]["sum"]
-            start_after = datetime.fromtimestamp(
-                last[statistic_id][0]["start"], tz=timezone.utc
-            )
+            row = last[statistic_id][0]
+            return row["sum"], datetime.fromtimestamp(row["start"], tz=timezone.utc)
+        return 0.0, None
+
+    # --- incremental imports (every update) ---
+
+    async def _import_hourly_statistics(self, zaehlpunkt: str) -> None:
+        metadata = self._energy_metadata(zaehlpunkt)
+        total, start_after = await self._last_sum(metadata["statistic_id"])
+        if start_after is not None:
             von = start_after.strftime("%Y-%m-%d")
         else:
-            total = 0.0
-            start_after = None
             von = (datetime.now() - timedelta(days=BACKFILL_DAYS)).strftime("%Y-%m-%d")
         bis = datetime.now().strftime("%Y-%m-%d")
 
@@ -102,38 +127,19 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             total += wh
             statistics.append(StatisticData(start=start, state=wh, sum=total))
 
-        if not statistics:
-            return
-
-        metadata = StatisticMetaData(
-            has_mean=False,
-            has_sum=True,
-            name=f"Smart meter {zaehlpunkt[-6:]} hourly energy",
-            source=DOMAIN,
-            statistic_id=statistic_id,
-            unit_of_measurement=UnitOfEnergy.WATT_HOUR,
-        )
-        async_add_external_statistics(self.hass, metadata, statistics)
+        if statistics:
+            async_add_external_statistics(self.hass, metadata, statistics)
 
     async def _import_cost_statistics(self, zaehlpunkt: str) -> None:
         price_entity = self.entry.options.get(CONF_PRICE_ENTITY)
         if not price_entity:
             return
 
-        statistic_id = f"{DOMAIN}:{zaehlpunkt.lower()}_hourly_cost"
-        last = await get_instance(self.hass).async_add_executor_job(
-            get_last_statistics, self.hass, 1, statistic_id, True, {"sum"}
+        metadata = self._cost_metadata(zaehlpunkt)
+        total, start_after = await self._last_sum(metadata["statistic_id"])
+        window_start = start_after or (
+            datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)
         )
-        if last.get(statistic_id):
-            total = last[statistic_id][0]["sum"]
-            start_after = datetime.fromtimestamp(
-                last[statistic_id][0]["start"], tz=timezone.utc
-            )
-            window_start = start_after
-        else:
-            total = 0.0
-            start_after = None
-            window_start = datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)
         von = window_start.strftime("%Y-%m-%d")
         bis = datetime.now().strftime("%Y-%m-%d")
 
@@ -148,19 +154,54 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         rows = compute_hourly_cost(
             energy_buckets, price_map, start_after=start_after, starting_total=total
         )
-        if not rows:
-            return
+        if rows:
+            stats = [StatisticData(start=h, state=c, sum=s) for h, c, s in rows]
+            async_add_external_statistics(self.hass, metadata, stats)
 
-        statistics = [StatisticData(start=h, state=c, sum=s) for h, c, s in rows]
-        metadata = StatisticMetaData(
-            has_mean=False,
-            has_sum=True,
-            name=f"Smart meter {zaehlpunkt[-6:]} hourly cost",
-            source=DOMAIN,
-            statistic_id=statistic_id,
-            unit_of_measurement=COST_CURRENCY,
-        )
-        async_add_external_statistics(self.hass, metadata, statistics)
+    # --- full history (on-demand service) ---
+
+    async def async_import_full_history(self) -> None:
+        """Re-import the full available history (API default ~3 years) from
+        scratch, overwriting existing statistics with a clean cumulative sum."""
+        for zaehlpunkt in list(self.data):
+            _LOGGER.info("Importing full history for %s", zaehlpunkt)
+            messwerte = await self.hass.async_add_executor_job(
+                partial(
+                    quarter_hour_messwerte,
+                    self.client,
+                    zaehlpunkt,
+                    None,
+                    None,
+                    paginate=True,
+                )
+            )
+            buckets = bucket_hourly(messwerte)
+            if not buckets:
+                continue
+
+            total = 0.0
+            energy_stats: list[StatisticData] = []
+            for start, wh in buckets:
+                total += wh
+                energy_stats.append(StatisticData(start=start, state=wh, sum=total))
+            async_add_external_statistics(
+                self.hass, self._energy_metadata(zaehlpunkt), energy_stats
+            )
+
+            price_entity = self.entry.options.get(CONF_PRICE_ENTITY)
+            if price_entity:
+                price_map = await self._build_price_map(
+                    price_entity, buckets[0][0], datetime.now(timezone.utc)
+                )
+                rows = compute_hourly_cost(buckets, price_map, starting_total=0.0)
+                if rows:
+                    stats = [StatisticData(start=h, state=c, sum=s) for h, c, s in rows]
+                    async_add_external_statistics(
+                        self.hass, self._cost_metadata(zaehlpunkt), stats
+                    )
+            _LOGGER.info("Full history import done for %s", zaehlpunkt)
+
+    # --- price lookup ---
 
     async def _build_price_map(
         self, price_entity: str, start_dt: datetime, end_dt: datetime

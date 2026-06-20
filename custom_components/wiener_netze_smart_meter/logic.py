@@ -34,8 +34,17 @@ def latest_daily_reading(client, zaehlpunkt: str, *, now: datetime | None = None
     )
 
 
-def quarter_hour_messwerte(client, zaehlpunkt: str, von: str, bis: str) -> list[dict]:
-    data = client.get_quarter_hour_values(zaehlpunkt, von, bis)
+def quarter_hour_messwerte(
+    client,
+    zaehlpunkt: str,
+    von: str | None = None,
+    bis: str | None = None,
+    paginate: bool = False,
+    chunk_days: int = 90,
+) -> list[dict]:
+    data = client.get_quarter_hour_values(
+        zaehlpunkt, von, bis, paginate=paginate, chunk_days=chunk_days
+    )
     if not data:
         return []
     return (data.get("zaehlwerke") or [{}])[0].get("messwerte") or []
