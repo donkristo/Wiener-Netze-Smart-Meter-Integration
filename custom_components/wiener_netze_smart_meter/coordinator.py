@@ -56,6 +56,11 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         )
         self.client = client
         self.entry = entry
+        # Zaehlpunkte known on the account, even ones with no reading yet.
+        # Sensors are created from this (not self.data) so a listener always
+        # registers; otherwise HA never schedules the periodic refresh after
+        # a fetch that finds no reading yet (e.g. a brand new meter).
+        self.known_zaehlpunkte: set[str] = set()
 
     async def _async_update_data(self) -> dict[str, MeterReading]:
         try:
@@ -78,6 +83,7 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             zaehlpunkt = anlage.get("zaehlpunktnummer")
             if not zaehlpunkt:
                 continue
+            self.known_zaehlpunkte.add(zaehlpunkt)
             reading = latest_daily_reading(self.client, zaehlpunkt)
             if reading:
                 readings[zaehlpunkt] = reading

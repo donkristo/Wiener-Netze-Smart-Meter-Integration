@@ -16,7 +16,8 @@ async def async_setup_entry(
 ) -> None:
     coordinator: WNSmartMeterCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        DailyEnergySensor(coordinator, zaehlpunkt) for zaehlpunkt in coordinator.data
+        DailyEnergySensor(coordinator, zaehlpunkt)
+        for zaehlpunkt in coordinator.known_zaehlpunkte
     )
 
 
