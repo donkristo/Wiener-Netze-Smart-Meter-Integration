@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from logic import (
     bucket_hourly,
     compute_hourly_cost,
+    is_active_zaehlpunkt,
     latest_daily_reading,
     latest_daily_readings,
     parse_price_data,
@@ -98,6 +99,13 @@ def test_returns_empty_quarter_hours_when_api_has_no_values():
     assert quarter_hour_messwerte(FailingClient(), "AT001", "2026-06-19", "2026-06-24") == []
 
 
+def test_detects_active_zaehlpunkte_by_customer_interface():
+    assert is_active_zaehlpunkt({"idex": {"customerInterface": "active"}})
+    assert is_active_zaehlpunkt({"idex": {"customerInterface": "ACTIVE"}})
+    assert is_active_zaehlpunkt({"idex": {}})
+    assert not is_active_zaehlpunkt({"idex": {"customerInterface": "inactive"}})
+
+
 def test_uses_lookback_window():
     client = StubClient({"zaehlwerke": [{"messwerte": []}]})
     latest_daily_reading(client, "AT001", now=datetime(2026, 6, 19))
@@ -164,6 +172,7 @@ if __name__ == "__main__":
     test_returns_none_when_no_data()
     test_returns_none_when_api_has_no_values()
     test_returns_empty_quarter_hours_when_api_has_no_values()
+    test_detects_active_zaehlpunkte_by_customer_interface()
     test_uses_lookback_window()
     test_bucket_hourly_sums_quarters_into_hours()
     test_bucket_hourly_empty()

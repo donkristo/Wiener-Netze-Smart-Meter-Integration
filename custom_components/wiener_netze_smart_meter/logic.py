@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 LOOKBACK_DAYS = 5
 API_DELAY_DAYS = 2
 API_REQUEST_ERROR = "WNAPIRequestError"
+INACTIVE_CUSTOMER_INTERFACE = "inactive"
 
 
 @dataclass
@@ -18,6 +19,11 @@ class MeterReading:
 
 def _is_api_request_error(err: Exception) -> bool:
     return err.__class__.__name__ == API_REQUEST_ERROR
+
+
+def is_active_zaehlpunkt(anlage: dict) -> bool:
+    customer_interface = (anlage.get("idex") or {}).get("customerInterface")
+    return str(customer_interface).strip().lower() != INACTIVE_CUSTOMER_INTERFACE
 
 
 def _daily_window(now: datetime | None = None) -> tuple[str, str]:
