@@ -72,7 +72,7 @@ def test_returns_latest_messwerte_from_global_endpoint():
     readings = latest_daily_readings(client, now=datetime(2026, 6, 19))
     assert list(readings) == ["AT001"]
     assert readings["AT001"].daily_wh == 200
-    assert client.calls[0] == (None, "2026-06-12", "2026-06-17")
+    assert client.calls[0] == (None, "2026-06-14", "2026-06-19")
 
 
 def test_returns_none_when_no_data():
@@ -95,7 +95,7 @@ def test_uses_lookback_window():
     client = StubClient({"zaehlwerke": [{"messwerte": []}]})
     latest_daily_reading(client, "AT001", now=datetime(2026, 6, 19))
     zaehlpunkt, von, bis = client.calls[0]
-    assert (zaehlpunkt, von, bis) == (None, "2026-06-12", "2026-06-17")
+    assert (zaehlpunkt, von, bis) == (None, "2026-06-14", "2026-06-19")
 
 
 def test_returns_quarter_hours_from_global_endpoint_for_zaehlpunkt():

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 LOOKBACK_DAYS = 5
-API_DELAY_DAYS = 2
 INACTIVE_CUSTOMER_INTERFACE = "inactive"
 
 
@@ -40,9 +39,8 @@ def _reading_from_payload(payload: dict, zaehlpunkt: str | None = None) -> Meter
 
 def latest_daily_readings(client, *, now: datetime | None = None) -> dict[str, MeterReading]:
     now = now or datetime.now()
-    latest_available = now - timedelta(days=API_DELAY_DAYS)
-    von = (latest_available - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
-    bis = latest_available.strftime("%Y-%m-%d")
+    von = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    bis = now.strftime("%Y-%m-%d")
     data = client.get_daily_values(None, von, bis)
     if not data:
         return {}
