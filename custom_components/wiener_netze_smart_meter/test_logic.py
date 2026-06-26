@@ -5,6 +5,7 @@ from logic import (
     compute_hourly_cost,
     latest_daily_reading,
     parse_price_data,
+    quarter_hour_messwerte,
 )
 
 
@@ -20,6 +21,18 @@ class StubClient:
     def get_daily_values(self, zaehlpunkt, von, bis):
         self.calls.append((zaehlpunkt, von, bis))
         return self.payload
+
+
+class WNAPIRequestError(Exception):
+    pass
+
+
+class FailingClient:
+    def get_daily_values(self, zaehlpunkt, von, bis):
+        raise WNAPIRequestError("not found")
+
+    def get_quarter_hour_values(self, zaehlpunkt, von, bis, paginate=False, chunk_days=90):
+        raise WNAPIRequestError("not found")
 
 
 def test_returns_latest_messwert():
@@ -50,11 +63,19 @@ def test_returns_none_when_no_data():
     )
 
 
+def test_returns_none_when_api_has_no_values():
+    assert latest_daily_reading(FailingClient(), "AT001") is None
+
+
+def test_returns_empty_quarter_hours_when_api_has_no_values():
+    assert quarter_hour_messwerte(FailingClient(), "AT001", "2026-06-19", "2026-06-24") == []
+
+
 def test_uses_lookback_window():
     client = StubClient({"zaehlwerke": [{"messwerte": []}]})
     latest_daily_reading(client, "AT001", now=datetime(2026, 6, 19))
     zaehlpunkt, von, bis = client.calls[0]
-    assert (zaehlpunkt, von, bis) == ("AT001", "2026-06-14", "2026-06-19")
+    assert (zaehlpunkt, von, bis) == ("AT001", "2026-06-12", "2026-06-17")
 
 
 def test_bucket_hourly_sums_quarters_into_hours():
@@ -113,6 +134,8 @@ def test_compute_hourly_cost_skips_unpriced_and_respects_start_after():
 if __name__ == "__main__":
     test_returns_latest_messwert()
     test_returns_none_when_no_data()
+    test_returns_none_when_api_has_no_values()
+    test_returns_empty_quarter_hours_when_api_has_no_values()
     test_uses_lookback_window()
     test_bucket_hourly_sums_quarters_into_hours()
     test_bucket_hourly_empty()

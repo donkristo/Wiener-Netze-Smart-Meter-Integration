@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 LOOKBACK_DAYS = 5
+API_DELAY_DAYS = 2
+API_REQUEST_ERROR = "WNAPIRequestError"
 
 
 @dataclass
@@ -14,11 +16,21 @@ class MeterReading:
     reading_date: str
 
 
+def _is_api_request_error(err: Exception) -> bool:
+    return err.__class__.__name__ == API_REQUEST_ERROR
+
+
 def latest_daily_reading(client, zaehlpunkt: str, *, now: datetime | None = None) -> MeterReading | None:
     now = now or datetime.now()
-    von = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
-    bis = now.strftime("%Y-%m-%d")
-    data = client.get_daily_values(zaehlpunkt, von, bis)
+    latest_available = now - timedelta(days=API_DELAY_DAYS)
+    von = (latest_available - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    bis = latest_available.strftime("%Y-%m-%d")
+    try:
+        data = client.get_daily_values(zaehlpunkt, von, bis)
+    except Exception as err:
+        if _is_api_request_error(err):
+            return None
+        raise
     if not data:
         return None
 
@@ -42,9 +54,14 @@ def quarter_hour_messwerte(
     paginate: bool = False,
     chunk_days: int = 90,
 ) -> list[dict]:
-    data = client.get_quarter_hour_values(
-        zaehlpunkt, von, bis, paginate=paginate, chunk_days=chunk_days
-    )
+    try:
+        data = client.get_quarter_hour_values(
+            zaehlpunkt, von, bis, paginate=paginate, chunk_days=chunk_days
+        )
+    except Exception as err:
+        if _is_api_request_error(err):
+            return []
+        raise
     if not data:
         return []
     return (data.get("zaehlwerke") or [{}])[0].get("messwerte") or []

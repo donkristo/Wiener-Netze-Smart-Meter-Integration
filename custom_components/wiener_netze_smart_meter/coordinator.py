@@ -26,6 +26,7 @@ from .const import (
     UPDATE_INTERVAL_HOURS,
 )
 from .logic import (
+    API_DELAY_DAYS,
     MeterReading,
     bucket_hourly,
     compute_hourly_cost,
@@ -129,7 +130,8 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             von = start_after.strftime("%Y-%m-%d")
         else:
             von = (datetime.now() - timedelta(days=BACKFILL_DAYS)).strftime("%Y-%m-%d")
-        bis = datetime.now().strftime("%Y-%m-%d")
+        latest_available = datetime.now() - timedelta(days=API_DELAY_DAYS)
+        bis = latest_available.strftime("%Y-%m-%d")
 
         messwerte = await self.hass.async_add_executor_job(
             quarter_hour_messwerte, self.client, zaehlpunkt, von, bis
@@ -157,7 +159,8 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
                 datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)
             )
             von = window_start.strftime("%Y-%m-%d")
-            bis = datetime.now().strftime("%Y-%m-%d")
+            latest_available = datetime.now() - timedelta(days=API_DELAY_DAYS)
+            bis = latest_available.strftime("%Y-%m-%d")
 
             messwerte = await self.hass.async_add_executor_job(
                 quarter_hour_messwerte, self.client, zaehlpunkt, von, bis

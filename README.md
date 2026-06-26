@@ -107,8 +107,8 @@ while.
 
 ## Notes & limitations
 
-- The official API publishes measurements with a **1–2 day delay**, so the most
-  recent values always lag by a day or two.
+- The official API publishes measurements with a **1–2 day delay**, so the
+  integration queries data only up to two days ago.
 - Home Assistant long-term statistics are bucketed **hourly**, so sub-hour
   (15-minute) resolution is not preserved on the Energy dashboard.
 - Cost backfill only reaches as far back as your price integration retained its
