@@ -16,7 +16,10 @@ from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from wiener_netze_smart_meter_api import WNAPIClient
-from wiener_netze_smart_meter_api.exceptions import WNAPIAuthenticationError
+from wiener_netze_smart_meter_api.exceptions import (
+    WNAPIAuthenticationError,
+    WNAPIRequestError,
+)
 
 from .const import (
     BACKFILL_DAYS,
@@ -31,7 +34,7 @@ from .logic import (
     bucket_hourly,
     compute_hourly_cost,
     is_active_zaehlpunkt,
-    latest_daily_reading,
+    latest_daily_readings,
     parse_price_data,
     quarter_hour_messwerte,
 )
@@ -80,7 +83,7 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         if isinstance(anlagen, dict):
             anlagen = [anlagen]
 
-        readings: dict[str, MeterReading] = {}
+        active_zaehlpunkte: set[str] = set()
         for anlage in anlagen or []:
             zaehlpunkt = anlage.get("zaehlpunktnummer")
             if not zaehlpunkt:
@@ -88,11 +91,19 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             if not is_active_zaehlpunkt(anlage):
                 _LOGGER.debug("Skipping inactive Zaehlpunkt %s", zaehlpunkt)
                 continue
-            self.known_zaehlpunkte.add(zaehlpunkt)
-            reading = latest_daily_reading(self.client, zaehlpunkt)
-            if reading:
-                readings[zaehlpunkt] = reading
-        return readings
+            active_zaehlpunkte.add(zaehlpunkt)
+
+        self.known_zaehlpunkte.update(active_zaehlpunkte)
+        try:
+            readings = latest_daily_readings(self.client)
+        except WNAPIRequestError as err:
+            _LOGGER.warning("Daily readings unavailable: %s", err)
+            return {}
+        return {
+            zaehlpunkt: reading
+            for zaehlpunkt, reading in readings.items()
+            if zaehlpunkt in active_zaehlpunkte
+        }
 
     # --- statistics metadata helpers ---
 
@@ -103,6 +114,7 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             name=f"Smart meter {zaehlpunkt[-6:]} hourly energy",
             source=DOMAIN,
             statistic_id=f"{DOMAIN}:{zaehlpunkt.lower()}_hourly_energy",
+            unit_class="energy",
             unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         )
 
@@ -113,6 +125,7 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             name=f"Smart meter {zaehlpunkt[-6:]} hourly cost",
             source=DOMAIN,
             statistic_id=f"{DOMAIN}:{zaehlpunkt.lower()}_hourly_cost",
+            unit_class=None,
             unit_of_measurement=COST_CURRENCY,
         )
 
@@ -137,9 +150,13 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         latest_available = datetime.now() - timedelta(days=API_DELAY_DAYS)
         bis = latest_available.strftime("%Y-%m-%d")
 
-        messwerte = await self.hass.async_add_executor_job(
-            quarter_hour_messwerte, self.client, zaehlpunkt, von, bis
-        )
+        try:
+            messwerte = await self.hass.async_add_executor_job(
+                quarter_hour_messwerte, self.client, zaehlpunkt, von, bis
+            )
+        except WNAPIRequestError as err:
+            _LOGGER.warning("Hourly statistics unavailable for %s: %s", zaehlpunkt, err)
+            return
 
         statistics: list[StatisticData] = []
         for start, wh in bucket_hourly(messwerte):

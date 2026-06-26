@@ -28,7 +28,7 @@ class DailyEnergySensor(CoordinatorEntity[WNSmartMeterCoordinator], SensorEntity
     # The value is the latest available daily total; see the reading_date
     # attribute for the day it actually belongs to.
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_has_entity_name = True
     _attr_name = "Latest daily energy"
 
@@ -45,7 +45,7 @@ class DailyEnergySensor(CoordinatorEntity[WNSmartMeterCoordinator], SensorEntity
     @property
     def native_value(self) -> float | None:
         reading = self.coordinator.data.get(self._zaehlpunkt)
-        return reading.daily_wh if reading else None
+        return reading.daily_wh / 1000 if reading else None
 
     @property
     def extra_state_attributes(self) -> dict[str, str]:

@@ -24,22 +24,15 @@ class StubClient:
         self.calls.append((zaehlpunkt, von, bis))
         return self.payload
 
-
-class WNAPIRequestError(Exception):
-    pass
-
-
-class FailingClient:
-    def get_daily_values(self, zaehlpunkt, von, bis):
-        raise WNAPIRequestError("not found")
-
     def get_quarter_hour_values(self, zaehlpunkt, von, bis, paginate=False, chunk_days=90):
-        raise WNAPIRequestError("not found")
+        self.calls.append((zaehlpunkt, von, bis, paginate, chunk_days))
+        return self.payload
 
 
 def test_returns_latest_messwert():
     client = StubClient(
         {
+            "zaehlpunkt": "AT001",
             "zaehlwerke": [
                 {
                     "messwerte": [
@@ -91,14 +84,6 @@ def test_returns_none_when_no_data():
     )
 
 
-def test_returns_none_when_api_has_no_values():
-    assert latest_daily_reading(FailingClient(), "AT001") is None
-
-
-def test_returns_empty_quarter_hours_when_api_has_no_values():
-    assert quarter_hour_messwerte(FailingClient(), "AT001", "2026-06-19", "2026-06-24") == []
-
-
 def test_detects_active_zaehlpunkte_by_customer_interface():
     assert is_active_zaehlpunkt({"idex": {"customerInterface": "active"}})
     assert is_active_zaehlpunkt({"idex": {"customerInterface": "ACTIVE"}})
@@ -110,7 +95,39 @@ def test_uses_lookback_window():
     client = StubClient({"zaehlwerke": [{"messwerte": []}]})
     latest_daily_reading(client, "AT001", now=datetime(2026, 6, 19))
     zaehlpunkt, von, bis = client.calls[0]
-    assert (zaehlpunkt, von, bis) == ("AT001", "2026-06-12", "2026-06-17")
+    assert (zaehlpunkt, von, bis) == (None, "2026-06-12", "2026-06-17")
+
+
+def test_returns_quarter_hours_from_global_endpoint_for_zaehlpunkt():
+    client = StubClient(
+        [
+            {
+                "zaehlpunkt": "AT001",
+                "zaehlwerke": [
+                    {
+                        "messwerte": [
+                            {"messwert": 10, "zeitVon": "2026-06-18T08:00:00.000Z"},
+                        ]
+                    }
+                ],
+            },
+            {
+                "zaehlpunkt": "AT002",
+                "zaehlwerke": [
+                    {
+                        "messwerte": [
+                            {"messwert": 20, "zeitVon": "2026-06-18T08:15:00.000Z"},
+                        ]
+                    }
+                ],
+            },
+        ]
+    )
+    messwerte = quarter_hour_messwerte(
+        client, "AT001", "2026-06-18", "2026-06-19", paginate=True, chunk_days=30
+    )
+    assert messwerte == [{"messwert": 10, "zeitVon": "2026-06-18T08:00:00.000Z"}]
+    assert client.calls[0] == (None, "2026-06-18", "2026-06-19", True, 30)
 
 
 def test_bucket_hourly_sums_quarters_into_hours():
@@ -170,10 +187,9 @@ if __name__ == "__main__":
     test_returns_latest_messwert()
     test_returns_latest_messwerte_from_global_endpoint()
     test_returns_none_when_no_data()
-    test_returns_none_when_api_has_no_values()
-    test_returns_empty_quarter_hours_when_api_has_no_values()
     test_detects_active_zaehlpunkte_by_customer_interface()
     test_uses_lookback_window()
+    test_returns_quarter_hours_from_global_endpoint_for_zaehlpunkt()
     test_bucket_hourly_sums_quarters_into_hours()
     test_bucket_hourly_empty()
     test_parse_price_data_to_utc_hours()

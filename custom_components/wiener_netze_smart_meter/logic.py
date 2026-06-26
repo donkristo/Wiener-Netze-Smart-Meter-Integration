@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 
 LOOKBACK_DAYS = 5
 API_DELAY_DAYS = 2
-API_REQUEST_ERROR = "WNAPIRequestError"
 INACTIVE_CUSTOMER_INTERFACE = "inactive"
 
 
@@ -17,21 +16,9 @@ class MeterReading:
     reading_date: str
 
 
-def _is_api_request_error(err: Exception) -> bool:
-    return err.__class__.__name__ == API_REQUEST_ERROR
-
-
 def is_active_zaehlpunkt(anlage: dict) -> bool:
     customer_interface = (anlage.get("idex") or {}).get("customerInterface")
     return str(customer_interface).strip().lower() != INACTIVE_CUSTOMER_INTERFACE
-
-
-def _daily_window(now: datetime | None = None) -> tuple[str, str]:
-    now = now or datetime.now()
-    latest_available = now - timedelta(days=API_DELAY_DAYS)
-    von = (latest_available - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
-    bis = latest_available.strftime("%Y-%m-%d")
-    return von, bis
 
 
 def _reading_from_payload(payload: dict, zaehlpunkt: str | None = None) -> MeterReading | None:
@@ -52,20 +39,16 @@ def _reading_from_payload(payload: dict, zaehlpunkt: str | None = None) -> Meter
 
 
 def latest_daily_readings(client, *, now: datetime | None = None) -> dict[str, MeterReading]:
-    von, bis = _daily_window(now)
-    try:
-        data = client.get_daily_values(None, von, bis)
-    except Exception as err:
-        if _is_api_request_error(err):
-            return {}
-        raise
-
+    now = now or datetime.now()
+    latest_available = now - timedelta(days=API_DELAY_DAYS)
+    von = (latest_available - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    bis = latest_available.strftime("%Y-%m-%d")
+    data = client.get_daily_values(None, von, bis)
     if not data:
         return {}
 
-    payloads = data if isinstance(data, list) else [data]
     readings: dict[str, MeterReading] = {}
-    for payload in payloads:
+    for payload in _payloads(data):
         reading = _reading_from_payload(payload)
         if reading:
             readings[reading.zaehlpunkt] = reading
@@ -73,17 +56,7 @@ def latest_daily_readings(client, *, now: datetime | None = None) -> dict[str, M
 
 
 def latest_daily_reading(client, zaehlpunkt: str, *, now: datetime | None = None) -> MeterReading | None:
-    von, bis = _daily_window(now)
-    try:
-        data = client.get_daily_values(zaehlpunkt, von, bis)
-    except Exception as err:
-        if _is_api_request_error(err):
-            return None
-        raise
-    if not data:
-        return None
-
-    return _reading_from_payload(data, zaehlpunkt)
+    return latest_daily_readings(client, now=now).get(zaehlpunkt)
 
 
 def quarter_hour_messwerte(
@@ -94,17 +67,22 @@ def quarter_hour_messwerte(
     paginate: bool = False,
     chunk_days: int = 90,
 ) -> list[dict]:
-    try:
-        data = client.get_quarter_hour_values(
-            zaehlpunkt, von, bis, paginate=paginate, chunk_days=chunk_days
-        )
-    except Exception as err:
-        if _is_api_request_error(err):
-            return []
-        raise
+    data = client.get_quarter_hour_values(
+        None, von, bis, paginate=paginate, chunk_days=chunk_days
+    )
     if not data:
         return []
-    return (data.get("zaehlwerke") or [{}])[0].get("messwerte") or []
+
+    messwerte: list[dict] = []
+    for payload in _payloads(data):
+        if payload.get("zaehlpunkt") != zaehlpunkt:
+            continue
+        messwerte.extend((payload.get("zaehlwerke") or [{}])[0].get("messwerte") or [])
+    return messwerte
+
+
+def _payloads(data) -> list[dict]:
+    return data if isinstance(data, list) else [data]
 
 
 def bucket_hourly(messwerte: list[dict]) -> list[tuple[datetime, float]]:
