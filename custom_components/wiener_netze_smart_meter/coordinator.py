@@ -30,7 +30,7 @@ from .logic import (
     MeterReading,
     bucket_hourly,
     compute_hourly_cost,
-    latest_daily_reading,
+    latest_daily_readings,
     parse_price_data,
     quarter_hour_messwerte,
 )
@@ -75,19 +75,8 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         return readings
 
     def _fetch(self) -> dict[str, MeterReading]:
-        anlagen = self.client.get_anlagendaten()
-        if isinstance(anlagen, dict):
-            anlagen = [anlagen]
-
-        readings: dict[str, MeterReading] = {}
-        for anlage in anlagen or []:
-            zaehlpunkt = anlage.get("zaehlpunktnummer")
-            if not zaehlpunkt:
-                continue
-            self.known_zaehlpunkte.add(zaehlpunkt)
-            reading = latest_daily_reading(self.client, zaehlpunkt)
-            if reading:
-                readings[zaehlpunkt] = reading
+        readings = latest_daily_readings(self.client)
+        self.known_zaehlpunkte.update(readings)
         return readings
 
     # --- statistics metadata helpers ---

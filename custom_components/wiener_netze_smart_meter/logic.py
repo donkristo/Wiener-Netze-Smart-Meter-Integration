@@ -20,21 +20,20 @@ def _is_api_request_error(err: Exception) -> bool:
     return err.__class__.__name__ == API_REQUEST_ERROR
 
 
-def latest_daily_reading(client, zaehlpunkt: str, *, now: datetime | None = None) -> MeterReading | None:
+def _daily_window(now: datetime | None = None) -> tuple[str, str]:
     now = now or datetime.now()
     latest_available = now - timedelta(days=API_DELAY_DAYS)
     von = (latest_available - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     bis = latest_available.strftime("%Y-%m-%d")
-    try:
-        data = client.get_daily_values(zaehlpunkt, von, bis)
-    except Exception as err:
-        if _is_api_request_error(err):
-            return None
-        raise
-    if not data:
+    return von, bis
+
+
+def _reading_from_payload(payload: dict, zaehlpunkt: str | None = None) -> MeterReading | None:
+    zaehlpunkt = payload.get("zaehlpunkt") or zaehlpunkt
+    if not zaehlpunkt:
         return None
 
-    messwerte = (data.get("zaehlwerke") or [{}])[0].get("messwerte") or []
+    messwerte = (payload.get("zaehlwerke") or [{}])[0].get("messwerte") or []
     if not messwerte:
         return None
 
@@ -44,6 +43,41 @@ def latest_daily_reading(client, zaehlpunkt: str, *, now: datetime | None = None
         daily_wh=latest["messwert"],
         reading_date=latest["zeitBis"][:10],
     )
+
+
+def latest_daily_readings(client, *, now: datetime | None = None) -> dict[str, MeterReading]:
+    von, bis = _daily_window(now)
+    try:
+        data = client.get_daily_values(None, von, bis)
+    except Exception as err:
+        if _is_api_request_error(err):
+            return {}
+        raise
+
+    if not data:
+        return {}
+
+    payloads = data if isinstance(data, list) else [data]
+    readings: dict[str, MeterReading] = {}
+    for payload in payloads:
+        reading = _reading_from_payload(payload)
+        if reading:
+            readings[reading.zaehlpunkt] = reading
+    return readings
+
+
+def latest_daily_reading(client, zaehlpunkt: str, *, now: datetime | None = None) -> MeterReading | None:
+    von, bis = _daily_window(now)
+    try:
+        data = client.get_daily_values(zaehlpunkt, von, bis)
+    except Exception as err:
+        if _is_api_request_error(err):
+            return None
+        raise
+    if not data:
+        return None
+
+    return _reading_from_payload(data, zaehlpunkt)
 
 
 def quarter_hour_messwerte(

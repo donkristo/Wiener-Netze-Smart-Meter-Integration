@@ -4,6 +4,7 @@ from logic import (
     bucket_hourly,
     compute_hourly_cost,
     latest_daily_reading,
+    latest_daily_readings,
     parse_price_data,
     quarter_hour_messwerte,
 )
@@ -52,6 +53,32 @@ def test_returns_latest_messwert():
     assert reading.daily_wh == 200
     assert reading.reading_date == "2026-06-18"
     assert reading.zaehlpunkt == "AT001"
+
+
+def test_returns_latest_messwerte_from_global_endpoint():
+    client = StubClient(
+        [
+            {
+                "zaehlpunkt": "AT001",
+                "zaehlwerke": [
+                    {
+                        "messwerte": [
+                            {"messwert": 100, "zeitBis": "2026-06-17T22:00:00.000Z"},
+                            {"messwert": 200, "zeitBis": "2026-06-18T22:00:00.000Z"},
+                        ]
+                    }
+                ],
+            },
+            {
+                "zaehlpunkt": "AT002",
+                "zaehlwerke": [{"messwerte": []}],
+            },
+        ]
+    )
+    readings = latest_daily_readings(client, now=datetime(2026, 6, 19))
+    assert list(readings) == ["AT001"]
+    assert readings["AT001"].daily_wh == 200
+    assert client.calls[0] == (None, "2026-06-12", "2026-06-17")
 
 
 def test_returns_none_when_no_data():
@@ -133,6 +160,7 @@ def test_compute_hourly_cost_skips_unpriced_and_respects_start_after():
 
 if __name__ == "__main__":
     test_returns_latest_messwert()
+    test_returns_latest_messwerte_from_global_endpoint()
     test_returns_none_when_no_data()
     test_returns_none_when_api_has_no_values()
     test_returns_empty_quarter_hours_when_api_has_no_values()
