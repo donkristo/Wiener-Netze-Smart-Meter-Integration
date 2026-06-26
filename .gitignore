@@ -173,10 +173,25 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Home Assistant local runtime/config artifacts
+.storage/
+deps/
+home-assistant.log*
+home-assistant_v2.db*
+OZW_Log.txt
+secrets.yaml
+known_devices.yaml
+
+# Local machine/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+
 # Visual Studio Code # 
 .vscode/* 
 !.vscode/settings.json 
 !.vscode/tasks.json 
 !.vscode/launch.json 
 !.vscode/extensions.json 
-.history
+.history/
+.vscode/tasks.json
